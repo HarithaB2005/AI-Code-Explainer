@@ -130,5 +130,3 @@ Interactive Code Playground: Allow users to edit and run code directly within th
 
 User Feedback Loop: Implement a system for users to rate explanations, enabling continuous model improvement.
 
-8. Contact
-For any questions or feedback, please contact student@domain.com.
