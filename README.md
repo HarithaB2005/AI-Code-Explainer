@@ -1,8 +1,6 @@
 🟣 AI Code Explainer
 Project Title: AI Code Explainer using Gemini 1.5 Flash
-College Name: DDD
-Student Name: XXX
-Email Address: student@domain.com
+Name: Bezawada Haritha
 1. Introduction
 The AI Code Explainer is a web-based application designed to provide quick and concise explanations for code snippets across various programming languages. Leveraging the power of Google's Gemini 1.5 Flash generative AI model, this tool aims to enhance code comprehension by offering immediate, high-level summaries of code functionality. The application features a clean, intuitive user interface built with Streamlit, styled with a distinct purple theme.
 
