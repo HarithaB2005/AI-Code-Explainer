@@ -5,12 +5,8 @@ import os
 
 GEMINI_MODEL_NAME = "gemini-1.5-flash"
 
-# For standard Python environments, load API key from environment variables for security.
-# Example: export GEMINI_API_KEY="YOUR_API_KEY_HERE" before running the app.
-# IMPORTANT: In THIS SPECIFIC CANVAS ENVIRONMENT, the API key is automatically
-# provided at runtime by the system even if os.getenv() returns None.
-# You do NOT need to paste your personal API key here.
-API_KEY = "AIzaSyAgwGxKexNUfvHmy2LbVyGufh-wPkgK5e4" 
+# Paste the API Key(in double quotes) mentioned in the document under the github link
+API_KEY = "" 
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL_NAME}:generateContent?key={API_KEY}"
 
 PURPLE_PRIMARY = "#8A2BE2"
