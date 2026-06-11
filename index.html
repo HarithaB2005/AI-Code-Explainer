@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>F.A.C.T — AI Fact Checker v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+/* =====================================================
+   F.A.C.T v2 — Fact-Checking & Analysis Tool
+   Complete rewrite: dark terminal aesthetic, two-panel
+   layout, result history, score ring, source cards.
+   ===================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --surface2:  #1c2333;
+  --border:    #30363d;
+  --text:      #e6edf3;
+  --text2:     #8b949e;
+  --text3:     #6e7681;
+  --accent:    #58a6ff;
+  --green:     #3fb950;
+  --yellow:    #d29922;
+  --red:       #f85149;
+  --font:      'Space Grotesk', sans-serif;
+  --mono:      'JetBrains Mono', monospace;
+  --radius:    10px;
+}
+
+/* Light mode */
+body.light {
+  --bg:       #f6f8fb;
+  --surface:  #ffffff;
+  --surface2: #f0f3f8;
+  --border:   #d0d7de;
+  --text:     #1f2328;
+  --text2:    #636c76;
+  --text3:    #9198a1;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  transition: background .25s, color .25s;
+  overflow: hidden;
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: relative;
+}
+.logo-mark {
+  width: 34px; height: 34px;
+  background: linear-gradient(135deg, #58a6ff 0%, #3fb950 100%);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 700; color: #0d1117; flex-shrink: 0;
+}
+.app-title { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+.version-badge {
+  font-size: 10px; background: #1a3a1f; color: var(--green);
+  border: 1px solid #2ea043; border-radius: 4px;
+  padding: 2px 7px; font-family: var(--mono); margin-left: 6px;
+  vertical-align: middle;
+}
+.app-sub { font-size: 11px; color: var(--text2); font-family: var(--mono); margin-top: 1px; }
+.header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.theme-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text2); border-radius: 7px; padding: 6px 10px;
+  font-size: 14px; cursor: pointer; transition: all .15s;
+}
+.theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- Main Layout ---------- */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  height: calc(100vh - 62px);
+}
+
+/* ---------- Left Panel ---------- */
+.left-panel {
+  padding: 22px 24px;
+  display: flex; flex-direction: column; gap: 18px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+.section-label {
+  font-size: 10px; font-weight: 600; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 1.3px; margin-bottom: 8px;
+}
+
+/* Textarea card */
+.input-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  transition: border-color .15s;
+}
+.input-card:focus-within { border-color: var(--accent); }
+.input-card textarea {
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: var(--font); font-size: 14px;
+  line-height: 1.65; resize: none; min-height: 88px;
+}
+.input-card textarea::placeholder { color: var(--text3); }
+.input-footer {
+  display: flex; gap: 8px; align-items: center;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.btn-primary {
+  background: var(--accent); color: #0d1117; border: none;
+  border-radius: 7px; padding: 8px 18px; font-family: var(--font);
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s;
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.btn-primary:hover { opacity: .85; }
+.btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent; border: 1px solid var(--border); color: var(--text2);
+  border-radius: 7px; padding: 7px 12px; font-family: var(--font);
+  font-size: 12px; cursor: pointer; transition: all .15s;
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.char-count { font-family: var(--mono); font-size: 11px; color: var(--text3); margin-left: auto; }
+.hint { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+
+/* Example chips */
+.examples-row { display: flex; gap: 7px; flex-wrap: wrap; }
+.example-chip {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text2); border-radius: 20px; padding: 5px 12px;
+  font-size: 11px; cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.example-chip:hover { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.06); }
+
+/* Image drop zone */
+.drop-zone {
+  background: var(--surface); border: 1px dashed var(--border);
+  border-radius: var(--radius); padding: 18px; text-align: center;
+  cursor: pointer; transition: all .15s; position: relative;
+}
+.drop-zone:hover, .drop-zone.over {
+  border-color: var(--accent); background: rgba(88,166,255,.04);
+}
+.drop-zone input[type="file"] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+}
+.drop-icon { font-size: 26px; margin-bottom: 6px; }
+.drop-label { font-size: 13px; color: var(--text2); }
+.drop-hint { font-size: 11px; color: var(--text3); margin-top: 3px; }
+.img-preview-wrap { position: relative; display: inline-block; margin-top: 12px; }
+.img-preview { max-width: 100%; max-height: 130px; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.img-remove {
+  position: absolute; top: -7px; right: -7px;
+  background: var(--red); color: #fff; border: none; border-radius: 50%;
+  width: 20px; height: 20px; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.ocr-box {
+  margin-top: 10px; background: rgba(88,166,255,.06);
+  border: 1px solid rgba(88,166,255,.2); border-radius: 8px;
+  padding: 10px 12px; font-family: var(--mono); font-size: 11px;
+  color: var(--text2); line-height: 1.55; max-height: 72px; overflow-y: auto;
+}
+.ocr-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* ---------- Right Panel ---------- */
+.right-panel {
+  display: flex; flex-direction: column;
+  background: var(--surface); overflow: hidden;
+}
+.tab-bar {
+  display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.tab {
+  padding: 10px 16px; font-size: 12px; font-weight: 500;
+  color: var(--text2); cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: all .15s; display: flex; align-items: center; gap: 6px;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text); }
+.hist-badge {
+  font-family: var(--mono); font-size: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1px 6px;
+}
+.result-area { flex: 1; padding: 20px; overflow-y: auto; }
+.history-area { flex: 1; padding: 16px; overflow-y: auto; display: none; }
+
+/* Empty / Loading states */
+.empty-state {
+  text-align: center; padding: 60px 20px; color: var(--text3);
+}
+.empty-icon { font-size: 38px; margin-bottom: 12px; }
+.empty-text { font-size: 13px; line-height: 1.6; }
+.loading-wrap {
+  display: none; flex-direction: column; align-items: center;
+  gap: 14px; padding: 60px 20px; text-align: center;
+}
+.dots { display: flex; gap: 6px; }
+.dots span {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.dots span:nth-child(2) { animation-delay: .2s; }
+.dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes pulse { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
+.loading-msg { font-size: 13px; color: var(--text2); font-family: var(--mono); }
+
+/* Result card */
+.result-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px; margin-bottom: 14px;
+}
+.verdict-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.verdict-badge {
+  padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+}
+.vb-true  { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+.vb-false { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+.vb-partial { background: rgba(210,153,34,.15); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+.vb-unknown { background: rgba(139,148,158,.1); color: var(--text2); border: 1px solid var(--border); }
+
+/* Score ring */
+.score-ring { position: relative; width: 54px; height: 54px; margin-left: auto; flex-shrink: 0; }
+.score-ring svg { transform: rotate(-90deg); }
+.score-label {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: var(--text); line-height: 1;
+}
+.score-label small { font-size: 9px; color: var(--text3); font-family: var(--mono); }
+
+.claim-quote {
+  font-family: var(--mono); font-size: 11px; color: var(--text3);
+  background: rgba(255,255,255,.03); border-left: 3px solid var(--border);
+  border-radius: 0 6px 6px 0; padding: 8px 12px; margin-bottom: 14px;
+  line-height: 1.5;
+}
+.analysis-section { margin-bottom: 14px; }
+.analysis-title { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.analysis-text { font-size: 13px; line-height: 1.7; color: var(--text2); }
+.fp-row {
+  display: flex; align-items: center; gap: 8px; font-family: var(--mono);
+  font-size: 10px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap;
+}
+.fp-label { color: var(--text3); }
+.fp-val { color: var(--accent); flex: 1; word-break: break-all; }
+.copy-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--text3);
+  border-radius: 5px; padding: 3px 8px; font-family: var(--mono);
+  font-size: 10px; cursor: pointer; transition: all .15s;
+}
+.copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Sources */
+.sources-header { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+.source-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+  text-decoration: none; transition: opacity .15s;
+}
+.source-link:last-child { border-bottom: none; }
+.source-link:hover { opacity: .75; }
+.src-favicon {
+  width: 16px; height: 16px; border-radius: 3px;
+  background: var(--border); flex-shrink: 0; object-fit: cover;
+}
+.src-info { flex: 1; min-width: 0; }
+.src-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src-host { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.src-arrow { color: var(--text3); font-size: 13px; flex-shrink: 0; }
+
+/* History list */
+.hist-item {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+  cursor: pointer; display: flex; gap: 10px; transition: all .15s;
+}
+.hist-item:hover { border-color: var(--accent); background: rgba(88,166,255,.05); }
+.hist-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.hd-true { background: var(--green); }
+.hd-false { background: var(--red); }
+.hd-partial { background: var(--yellow); }
+.hd-unknown { background: var(--text3); }
+.hist-claim {
+  font-size: 12px; color: var(--text); line-height: 1.4;
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.hist-meta { font-family: var(--mono); font-size: 10px; color: var(--text3); margin-top: 3px; }
+
+/* Error */
+.error-box {
+  background: rgba(248,81,73,.07); border: 1px solid rgba(248,81,73,.25);
+  border-radius: 8px; padding: 14px; color: var(--red); font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Status bar */
+.status-bar {
+  padding: 5px 16px; border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10px; color: var(--text3);
+  display: flex; align-items: center; gap: 7px; flex-shrink: 0;
+  background: var(--surface);
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+/* Spinner */
+.spin {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,.25); border-top-color: #0d1117;
+  border-radius: 50%; animation: rot .7s linear infinite;
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+
+/* Responsive */
+@media (max-width: 780px) {
+  body { overflow: auto; }
+  .main-layout { grid-template-columns: 1fr; height: auto; }
+  .right-panel { min-height: 480px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== HEADER ===================== -->
+<header class="app-header">
+  <div class="logo-mark">F</div>
+  <div>
+    <div class="app-title">F.A.C.T <span class="version-badge">v2.0</span></div>
+    <div class="app-sub">Fact-Checking &amp; Analysis Tool — Gemini + Google Search</div>
+  </div>
+  <div class="header-actions">
+    <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+  </div>
+</header>
+
+<!-- ===================== MAIN ===================== -->
+<div class="main-layout">
+
+  <!-- ---- LEFT: Input Panel ---- -->
+  <div class="left-panel">
+
+    <!-- Text claim input -->
+    <div>
+      <div class="section-label">Claim to verify</div>
+      <div class="input-card">
+        <textarea
+          id="claimInput"
+          maxlength="500"
+          placeholder="Enter any claim, headline, or statement to fact-check…"
+          oninput="onInput()"
+          onkeydown="onKeyDown(event)"
+        ></textarea>
+        <div class="input-footer">
+          <button class="btn-primary" id="verifyBtn" onclick="verifyClaim()">
+            <span id="btnIcon">⚡</span>
+            <span id="btnText">Verify Claim</span>
+          </button>
+          <button class="btn-ghost" onclick="clearClaim()">Clear</button>
+          <span class="char-count" id="charCount">0 / 500</span>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:5px">Tip: Ctrl+Enter to verify</div>
+    </div>
+
+    <!-- Example claims -->
+    <div>
+      <div class="section-label">Try an example</div>
+      <div class="examples-row" id="examplesRow"></div>
+    </div>
+
+    <!-- Image / OCR analysis -->
+    <div>
+      <div class="section-label">Image Analysis (OCR)</div>
+      <div class="drop-zone" id="dropZone"
+           ondragover="onDragOver(event)"
+           ondragleave="onDragLeave(event)"
+           ondrop="onDrop(event)">
+        <input type="file" id="imgInput" accept="image/*" onchange="onFileSelect(event)" />
+        <div class="drop-icon">🖼️</div>
+        <div class="drop-label">Drop image here or click to upload</div>
+        <div class="drop-hint">Extracts text via OCR, then verify it instantly</div>
+      </div>
+      <div id="imgPreviewArea"></div>
+      <div id="ocrArea"></div>
+    </div>
+
+  </div>
+
+  <!-- ---- RIGHT: Results Panel ---- -->
+  <div class="right-panel">
+    <div class="tab-bar">
+      <div class="tab active" id="tabResult" onclick="switchTab('result')">Result</div>
+      <div class="tab" id="tabHistory" onclick="switchTab('history')">
+        History <span class="hist-badge" id="histBadge">0</span>
+      </div>
+    </div>
+
+    <!-- Result tab -->
+    <div class="result-area" id="resultArea">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-text">Enter a claim above and press <strong>Verify Claim</strong><br>to see an AI-powered fact-check.</div>
+      </div>
+      <div class="loading-wrap" id="loadingWrap">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="loading-msg" id="loadingMsg">Initializing…</div>
+      </div>
+      <div id="resultContent"></div>
+    </div>
+
+    <!-- History tab -->
+    <div class="history-area" id="historyArea">
+      <div id="historyList">
+        <div style="text-align:center;padding:40px 0;color:var(--text3);font-size:13px">No checks yet</div>
+      </div>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Ready</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// =================================================================
+//  F.A.C.T v2 — Frontend Logic
+//  Key fixes vs v1:
+//  1. API endpoint corrected to /api/factcheck (was /api/analyze-text)
+//  2. Result history panel with replay
+//  3. Score ring visualisation
+//  4. OCR → verify pipeline completed
+//  5. Fingerprint generation (server-side, displayed here)
+// =================================================================
+
+const EXAMPLES = [
+  "The Great Wall of China is visible from space",
+  "Humans only use 10% of their brain",
+  "Lightning never strikes the same place twice",
+  "Goldfish have a 3-second memory",
+  "Mount Everest is the tallest mountain on Earth"
+];
+
+const LOADING_MSGS = [
+  "Searching the web for evidence…",
+  "Cross-referencing claims…",
+  "Evaluating source credibility…",
+  "Generating analysis…",
+  "Almost there…"
+];
+
+let history = [];
+let loadingTimer = null;
+let ocrExtracted = "";
+
+// ---- Init ----
+(function init() {
+  const row = document.getElementById("examplesRow");
+  EXAMPLES.forEach(e => {
+    const chip = document.createElement("div");
+    chip.className = "example-chip";
+    chip.textContent = e.length > 42 ? e.slice(0, 42) + "…" : e;
+    chip.title = e;
+    chip.onclick = () => {
+      document.getElementById("claimInput").value = e;
+      updateCharCount();
+    };
+    row.appendChild(chip);
+  });
+
+  // Restore theme preference
+  const saved = localStorage.getItem("fact-theme");
+  if (saved === "light") applyTheme("light");
+})();
+
+// ---- Theme ----
+function toggleTheme() {
+  const isLight = document.body.classList.contains("light");
+  applyTheme(isLight ? "dark" : "light");
+}
+function applyTheme(t) {
+  document.body.classList.toggle("light", t === "light");
+  document.getElementById("themeBtn").textContent = t === "light" ? "🌙" : "☀️";
+  localStorage.setItem("fact-theme", t);
+}
+
+// ---- Input helpers ----
+function onInput() { updateCharCount(); }
+function updateCharCount() {
+  const v = document.getElementById("claimInput").value;
+  document.getElementById("charCount").textContent = `${v.length} / 500`;
+}
+function onKeyDown(e) {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) verifyClaim();
+}
+function clearClaim() {
+  document.getElementById("claimInput").value = "";
+  updateCharCount();
+}
+
+// ---- Status bar ----
+function setStatus(msg, ok = true) {
+  document.getElementById("statusText").textContent = msg;
+  document.getElementById("statusDot").style.background = ok ? "var(--green)" : "var(--red)";
+}
+
+// ---- Tabs ----
+function switchTab(tab) {
+  document.getElementById("tabResult").classList.toggle("active", tab === "result");
+  document.getElementById("tabHistory").classList.toggle("active", tab === "history");
+  document.getElementById("resultArea").style.display = tab === "result" ? "block" : "none";
+  document.getElementById("historyArea").style.display = tab === "history" ? "block" : "none";
+}
+
+// ---- Score ring SVG ----
+function scoreRing(score) {
+  const r = 21, c = 2 * Math.PI * r;
+  const fill = c * (score / 100);
+  const col = score >= 75 ? "#3fb950" : score >= 40 ? "#d29922" : "#f85149";
+  return `<div class="score-ring">
+    <svg width="54" height="54" viewBox="0 0 54 54">
+      <circle cx="27" cy="27" r="${r}" fill="none" stroke="#30363d" stroke-width="5"/>
+      <circle cx="27" cy="27" r="${r}" fill="none" stroke="${col}" stroke-width="5"
+        stroke-dasharray="${fill.toFixed(1)} ${c.toFixed(1)}" stroke-linecap="round"/>
+    </svg>
+    <div class="score-label">${score}<small>score</small></div>
+  </div>`;
+}
+
+// ---- Verdict helpers ----
+function verdictClass(v) {
+  const lv = (v || "").toLowerCase();
+  if (lv === "true" || lv.includes("true")) return "true";
+  if (lv === "false" || lv.includes("false")) return "false";
+  if (lv.includes("partial")) return "partial";
+  return "unknown";
+}
+
+function esc(s) {
+  return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ---- Render result ----
+function buildResultHTML(data, claim) {
+  const vc = verdictClass(data.verdict);
+  const fp = data.fingerprint || "—";
+
+  const sourcesHTML = (data.sources && data.sources.length)
+    ? data.sources.slice(0, 5).map(s =>
+        `<a class="source-link" href="${esc(s.uri || "#")}" target="_blank" rel="noopener">
+          <img class="src-favicon" src="https://www.google.com/s2/favicons?sz=32&domain=${esc(s.hostname||"")}" onerror="this.style.display='none'" />
+          <div class="src-info">
+            <div class="src-title">${esc(s.title || s.hostname || "Source")}</div>
+            <div class="src-host">${esc(s.hostname || "")}</div>
+          </div>
+          <span class="src-arrow">↗</span>
+        </a>`
+      ).join("")
+    : `<div style="color:var(--text3);font-size:12px;padding:6px 0">No sources returned for this query.</div>`;
+
+  return `
+    <div class="result-card">
+      <div class="verdict-row">
+        <div>
+          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:6px">VERDICT</div>
+          <div class="verdict-badge vb-${vc}">${esc(data.verdict || "Unknown")}</div>
+        </div>
+        ${scoreRing(data.accuracy_score || 0)}
+      </div>
+      <div class="claim-quote">"${esc(claim)}"</div>
+      <div class="analysis-section">
+        <div class="analysis-title">Analysis</div>
+        <div class="analysis-text">${esc(data.analysis || "No analysis returned.")}</div>
+      </div>
+      <div class="fp-row">
+        <span class="fp-label">fingerprint:</span>
+        <span class="fp-val">${fp}</span>
+        <button class="copy-btn" onclick="copyToClipboard('${fp}','Fingerprint copied')">copy</button>
+      </div>
+    </div>
+    <div>
+      <div class="sources-header">Sources</div>
+      ${sourcesHTML}
+    </div>`;
+}
+
+function showResult(data, claim) {
+  document.getElementById("emptyState").style.display = "none";
+  document.getElementById("loadingWrap").style.display = "none";
+  const rc = document.getElementById("resultContent");
+  rc.innerHTML = buildResultHTML(data, claim);
+}
+
+// ---- Main verify ----
+async function verifyClaim() {
+  const claim = document.getElementById("claimInput").value.trim();
+  if (!claim) return;
+
+  const btn = document.getElementById("verifyBtn");
+  btn.disabled = true;
+  document.getElementById("btnIcon").innerHTML = `<span class="spin"></span>`;
+  document.getElementById("btnText").textContent = "Verifying…";
+
+  document.getElementById("emptyState").style.display = "none";
+  document.getElementById("resultContent").innerHTML = "";
+  const lw = document.getElementById("loadingWrap");
+  lw.style.display = "flex";
+  setStatus("Contacting API…");
+
+  let mi = 0;
+  document.getElementById("loadingMsg").textContent = LOADING_MSGS[0];
+  loadingTimer = setInterval(() => {
+    mi = (mi + 1) % LOADING_MSGS.length;
+    document.getElementById("loadingMsg").textContent = LOADING_MSGS[mi];
+  }, 2000);
+
+  try {
+    // FIXED: correct endpoint (was /api/analyze-text in v1)
+    const resp = await fetch("/api/factcheck", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim })
+    });
+
+    clearInterval(loadingTimer);
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+      throw new Error(err.error || `Server error ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    showResult(data, claim);
+    pushHistory(claim, data);
+    setStatus(`Done · ${data.verdict} · score ${data.accuracy_score}`);
+  } catch (err) {
+    clearInterval(loadingTimer);
+    lw.style.display = "none";
+    document.getElementById("resultContent").innerHTML =
+      `<div class="error-box">⚠ ${esc(err.message || String(err))}<br><br>
+      Make sure the Flask server is running: <code>python app.py</code><br>
+      And your <code>GEMINI_API_KEY</code> environment variable is set.</div>`;
+    setStatus("Error", false);
+  } finally {
+    btn.disabled = false;
+    document.getElementById("btnIcon").textContent = "⚡";
+    document.getElementById("btnText").textContent = "Verify Claim";
+  }
+}
+
+// ---- History ----
+function pushHistory(claim, data) {
+  history.unshift({ claim, data, vc: verdictClass(data.verdict), time: new Date().toLocaleTimeString() });
+  document.getElementById("histBadge").textContent = history.length;
+  renderHistory();
+}
+
+function renderHistory() {
+  const list = document.getElementById("historyList");
+  if (!history.length) {
+    list.innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--text3);font-size:13px">No checks yet</div>`;
+    return;
+  }
+  list.innerHTML = history.map((h, i) =>
+    `<div class="hist-item" onclick="loadHistItem(${i})">
+      <div class="hist-dot hd-${h.vc}"></div>
+      <div style="flex:1;min-width:0">
+        <div class="hist-claim">${esc(h.claim)}</div>
+        <div class="hist-meta">${h.vc.toUpperCase()} · ${h.data.accuracy_score} · ${h.time}</div>
+      </div>
+    </div>`
+  ).join("");
+}
+
+function loadHistItem(i) {
+  const h = history[i];
+  showResult(h.data, h.claim);
+  switchTab("result");
+}
+
+// ---- Copy helper ----
+function copyToClipboard(text, msg) {
+  navigator.clipboard.writeText(text).catch(() => {});
+  setStatus(msg || "Copied!");
+  setTimeout(() => setStatus("Ready"), 2000);
+}
+
+// ---- Image / OCR ----
+function onDragOver(e)  { e.preventDefault(); document.getElementById("dropZone").classList.add("over"); }
+function onDragLeave()  { document.getElementById("dropZone").classList.remove("over"); }
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById("dropZone").classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith("image/")) processImage(f);
+}
+function onFileSelect(e) { const f = e.target.files[0]; if (f) processImage(f); }
+
+async function processImage(file) {
+  const pArea = document.getElementById("imgPreviewArea");
+  const oArea = document.getElementById("ocrArea");
+  const url = URL.createObjectURL(file);
+
+  pArea.innerHTML = `<div class="img-preview-wrap">
+    <img class="img-preview" src="${url}" />
+    <button class="img-remove" onclick="clearImage()">×</button>
+  </div>`;
+  oArea.innerHTML = `<div class="ocr-box" style="color:var(--text3)">Extracting text…</div>`;
+  setStatus("Running OCR…");
+
+  try {
+    const { data: { text } } = await Tesseract.recognize(file, "eng", {
+      logger: m => {
+        if (m.status === "recognizing text")
+          setStatus(`OCR: ${Math.round(m.progress * 100)}%`);
+      }
+    });
+    const trimmed = text.trim();
+    ocrExtracted = trimmed;
+
+    if (trimmed) {
+      const preview = trimmed.length > 250 ? trimmed.slice(0, 250) + "…" : trimmed;
+      oArea.innerHTML = `
+        <div class="ocr-box">${esc(preview)}</div>
+        <div class="ocr-actions">
+          <button class="btn-ghost" style="font-size:11px" onclick="useOcrText()">⚡ Verify extracted text</button>
+          <button class="btn-ghost" style="font-size:11px" onclick="copyToClipboard(ocrExtracted,'Text copied')">Copy text</button>
+        </div>`;
+      setStatus("Text extracted — click Verify to fact-check it");
+    } else {
+      oArea.innerHTML = `<div class="ocr-box" style="color:var(--text3)">No readable text found in this image.</div>`;
+      setStatus("No text detected", false);
+    }
+  } catch (err) {
+    oArea.innerHTML = `<div class="error-box">OCR failed: ${esc(err.message)}</div>`;
+    setStatus("OCR error", false);
+  }
+}
+
+function useOcrText() {
+  if (ocrExtracted) {
+    document.getElementById("claimInput").value = ocrExtracted.slice(0, 500);
+    updateCharCount();
+    verifyClaim();
+  }
+}
+
+function clearImage() {
+  document.getElementById("imgPreviewArea").innerHTML = "";
+  document.getElementById("ocrArea").innerHTML = "";
+  document.getElementById("imgInput").value = "";
+  ocrExtracted = "";
+  setStatus("Ready");
+}
+</script>
+</body>
+</html>

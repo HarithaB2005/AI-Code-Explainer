@@ -1,214 +1,167 @@
-import streamlit as st
+import os
 import requests
 import json
-import os
+import time
+import hashlib
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from urllib.parse import urlparse
 
-GEMINI_MODEL_NAME = "gemini-1.5-flash"
+app = Flask(__name__, static_folder=".")
+CORS(app)
 
-# Paste the API Key(in double quotes) mentioned in the document under the github link
-API_KEY = "" 
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL_NAME}:generateContent?key={API_KEY}"
+# --- Configuration ---
+# Set your Gemini API key as an environment variable: export GEMINI_API_KEY="your_key_here"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-PURPLE_PRIMARY = "#8A2BE2"
-PURPLE_LIGHT = "#E6E6FA" 
-PURPLE_DARK = "#4B0082"   
-PURPLE_MEDIUM = "#6A5ACD" 
-WHITE_TEXT = "#FFFFFF"    
-BLACK_TEXT = "#000000"     
-
-st.set_page_config(
-    layout="centered", 
-    page_title="AI Code Explainer", 
-    page_icon="🟣", 
-    initial_sidebar_state="collapsed"
-)
-st.markdown(f"""
-<style>
-    .stApp {{
-        background-color: {PURPLE_LIGHT};
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='90' font-size='100' opacity='0.08'>🤖</text></svg>"),
-                         url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='90' font-size='100' opacity='0.08'>✨</text></svg>");
-        background-size: 80px 80px, 120px 120px;
-        background-repeat: repeat;
-        background-position: 0 0, 40px 40px;
-        color: {BLACK_TEXT};
-        animation: fadeIn 1s ease-out forwards;
-    }}
-
-    @keyframes fadeIn {{
-        from {{ opacity: 0; }}
-        to {{ opacity: 1; }}
-    }}
-
-    h1 {{
-        text-align: center; 
-        color: {PURPLE_DARK};
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-    }}
-
-    h2, h3, h4, h5, h6 {{
-        color: {PURPLE_DARK};
-    }}
-
-    .stMarkdown {{
-        color: {BLACK_TEXT};
-    }}
-
-    .stButton > button {{
-        background-color: {PURPLE_PRIMARY};
-        color: {WHITE_TEXT};
-        border-radius: 12px;
-        padding: 10px 20px;
-        font-size: 18px;
-        border: none;
-        box-shadow: 3px 3px 6px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-    }}
-
-    .stButton > button:hover {{
-        background-color: {PURPLE_DARK};
-        transform: translateY(-2px);
-        box-shadow: 5px 5px 10px rgba(0,0,0,0.3);
-    }}
-
-    .stSelectbox > label, .stTextarea > label {{
-        color: {PURPLE_DARK};
-        font-weight: bold;
-    }}
-    .stSelectbox > div > div {{
-        border-radius: 12px;
-        border: 2px solid {PURPLE_PRIMARY};
-        box-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-        background-color: {WHITE_TEXT};
-        color: {BLACK_TEXT};
-    }}
-    .stSelectbox > div > div > div > div {{
-        color: {BLACK_TEXT};
-    }}
-
-    .stTextArea > div > div > textarea {{
-        border-radius: 12px;
-        border: 2px solid {PURPLE_PRIMARY};
-        box-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-        background-color: {PURPLE_DARK};
-        color: {WHITE_TEXT};
-        font-family: 'monospace';
-    }}
-
-    .explanation-output-box {{
-        border-radius: 12px;
-        background-color: {PURPLE_MEDIUM};
-        color: {WHITE_TEXT};
-        padding: 20px;
-        margin-top: 20px;
-        box-shadow: 3px 3px 8px rgba(0,0,0,0.3);
-        border: 1px solid {PURPLE_PRIMARY};
-    }}
-
-    .explanation-output-box p {{
-        color: {WHITE_TEXT};
-    }}
-    .explanation-output-box h3 {{
-        color: {WHITE_TEXT};
-    }}
-
-    .stSpinner > div > div {{
-        border-top-color: {PURPLE_PRIMARY} !important;
-    }}
-
-</style>
-""", unsafe_allow_html=True)
+# Using the stable gemini-1.5-flash model (gemini-2.5-flash-preview had a wrong date suffix before)
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 
-st.markdown(f"<h1 style='text-align: center; color: {PURPLE_DARK};'>🟣 Code Explainer</h1>", unsafe_allow_html=True) 
-st.markdown("Enter your code below, specify its language, and get an explanation "
-            "from a Large Language Model (Gemini 1.5 Flash).")
-
-language_options = ["Auto-detect", "Python", "C", "C++", "Java", "JavaScript", "Go", "Rust", "SQL", "HTML/CSS/JS"]
-selected_language = st.selectbox("Select Code Language:", language_options)
-
-code_input = st.text_area("Paste your code here:", height=300, 
-                          placeholder="Example:\nn = int(input(\"Enter an integer: \"))\nif n % 2 == 0:\n    print(n, \"is even\")\nelse:\n    print(n, \"is odd\")")
-
-
-explanation_type = st.radio(
-    "Choose explanation style:",
-    ("Brief", "Detailed"),
-    horizontal=True
-)
-
-explain_button = st.button("Explain Code", type="primary")
-
-if explain_button and code_input:
-    with st.spinner("Generating explanation... This might take a moment."):
+def call_gemini_api_with_retry(url, key, payload, max_retries=3):
+    """POST to Gemini API with exponential backoff for transient errors."""
+    headers = {"Content-Type": "application/json"}
+    url_with_key = f"{url}?key={key}"
+    for attempt in range(max_retries):
         try:
-            if explanation_type == "Brief":
-                system_prompt = (
-                    "You are an extremely concise code explainer. "
-                    "Provide **ONLY one very short sentence** (maximum 15 words) "
-                    "that describes the code's overall main purpose. "
-                    "For example:\n"
-                    "- If code prints 'Hello World': 'This code prints \"Hello, World!\" to the console.'\n"
-                    "- If code checks even/odd: 'This code checks if a user-entered number is even or odd.'\n"
-                    "Do NOT include any specific details, line-by-line interpretation, "
-                    "mentions of variables/functions, or general programming concepts. "
-                    "Just the core function in one, highly condensed sentence."
-                )
-            else: 
-                system_prompt = (
-                    "You are a clear and pedagogical code explainer for beginners. "
-                    "Provide a comprehensive, yet *easy-to-understand*, explanation of the provided code. "
-                    "Explain the code's overall purpose and then break down *how it works step-by-step*. "
-                    "Focus on the *functionality and logical flow*, explaining key concepts like "
-                    "variables, functions, loops, or conditional statements as they are used in the code. "
-                    "Avoid dissecting every single character, word, or literal syntax element. "
-                    "The goal is clarity and understanding of the code's behavior, not a linguistic parse. "
-                    "Do NOT include the original code or code snippets in your output. "
-                    "Do NOT include generic introductions about the programming language itself; "
-                    "jump straight into explaining the provided code."
-                )
-            
-            if selected_language == "Auto-detect":
-                user_message = f"Please provide a {explanation_type.lower()} explanation for the following code. Identify the language first:\n\n```\n{code_input}\n```"
+            response = requests.post(url_with_key, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
             else:
-                user_message = f"Please provide a {explanation_type.lower()} explanation for the following {selected_language} code:\n\n```\n{code_input}\n```"
+                raise e
+    return None
 
-            payload = {
-                "contents": [
-                    {"role": "user", "parts": [{"text": system_prompt + "\n\n" + user_message}]}
-                ],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 1000
+
+def generate_fingerprint(claim: str, verdict: str, score: int) -> str:
+    """Generate a short SHA-256 fingerprint for a fact-check result."""
+    raw = f"{claim.strip().lower()}|{verdict.lower()}|{score}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------
+# FIX: The old frontend called /api/analyze-text but the backend
+#      only had /api/factcheck — both routes now point here.
+# ---------------------------------------------------------------
+@app.route("/api/factcheck", methods=["POST"])
+@app.route("/api/analyze-text", methods=["POST"])  # legacy alias kept for compatibility
+def fact_check_claim():
+    """
+    Accept a claim and return:
+      - verdict       : "True" | "False" | "Partially True"
+      - accuracy_score: 0–100
+      - analysis      : concise paragraph
+      - sources       : list of {title, uri, hostname}
+      - fingerprint   : short hash for sharing / archiving
+    """
+    if not GEMINI_API_KEY:
+        return jsonify({
+            "error": "GEMINI_API_KEY environment variable is not set. "
+                     "Run: export GEMINI_API_KEY='your_key_here'"
+        }), 500
+
+    try:
+        data = request.get_json()
+        # Support both field names from old and new frontend
+        claim = data.get("claim") or data.get("text", "").strip()
+
+        if not claim:
+            return jsonify({"error": "Missing 'claim' field in request body"}), 400
+
+        if len(claim) > 2000:
+            return jsonify({"error": "Claim must be under 2000 characters"}), 400
+
+        system_prompt = (
+            "You are a world-class fact-checker. Use the provided Google Search results "
+            "to assess the accuracy of the user's claim. "
+            "Respond STRICTLY in the requested JSON format. "
+            "accuracy_score (0-100) is your confidence in the verdict based on found sources."
+        )
+
+        payload = {
+            "contents": [{"parts": [{"text": f"Fact-Check this claim: {claim}"}]}],
+            "tools": [{"google_search": {}}],
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "verdict": {
+                            "type": "STRING",
+                            "description": "Exactly one of: 'True', 'False', 'Partially True'."
+                        },
+                        "accuracy_score": {
+                            "type": "INTEGER",
+                            "description": "Confidence in the verdict from 0 to 100."
+                        },
+                        "analysis": {
+                            "type": "STRING",
+                            "description": "2-3 sentences explaining the verdict using retrieved sources."
+                        }
+                    },
+                    "propertyOrdering": ["verdict", "accuracy_score", "analysis"]
                 }
             }
+        }
 
-            headers = {
-                'Content-Type': 'application/json'
-            }
+        response = call_gemini_api_with_retry(API_URL, GEMINI_API_KEY, payload)
+        gemini_result = response.json()
 
-            response = requests.post(API_URL, headers=headers, data=json.dumps(payload))
-            response.raise_for_status()
-            result = response.json()
+        candidate = gemini_result.get("candidates", [None])[0]
+        if not candidate:
+            return jsonify({"error": "Gemini returned an empty response."}), 500
 
-            if result.get('candidates') and result['candidates'][0].get('content') and result['candidates'][0]['content'].get('parts'):
-                explanation = result['candidates'][0]['content']['parts'][0]['text']
-            else:
-                explanation = "Error: Could not retrieve explanation from Gemini API. Unexpected response structure."
-                st.error(f"Unexpected API response structure: {result}")
+        json_text = candidate.get("content", {}).get("parts", [{}])[0].get("text", "")
+        try:
+            result_data = json.loads(json_text)
+        except json.JSONDecodeError:
+            app.logger.error(f"Malformed JSON from Gemini: {json_text}")
+            return jsonify({"error": "API returned malformed JSON.", "raw": json_text}), 500
 
-            st.markdown(f"<div class='explanation-output-box'><h3 style='color: {WHITE_TEXT};'>{explanation_type} Explanation:</h3><p>{explanation}</p></div>", unsafe_allow_html=True)
+        # Extract grounding sources
+        sources = []
+        grounding = candidate.get("groundingMetadata", {})
+        attributions = grounding.get("groundingAttributions", [])
+        for attr in attributions:
+            web = attr.get("web", {})
+            uri = web.get("uri", "")
+            title = web.get("title", "")
+            if uri and title:
+                sources.append({
+                    "title": title,
+                    "uri": uri,
+                    "hostname": urlparse(uri).hostname or "unknown"
+                })
 
-        except requests.exceptions.RequestException as req_err:
-            st.error(f"Network or API request error: {req_err}")
-            st.info("Please check your internet connection and ensure the Gemini API is accessible.")
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {e}")
-            st.info("Please review the code and try again.")
+        # Build final response
+        result_data["sources"] = sources
+        result_data["fingerprint"] = generate_fingerprint(
+            claim,
+            result_data.get("verdict", "unknown"),
+            result_data.get("accuracy_score", 0)
+        )
 
-elif explain_button and not code_input:
-    st.warning("Please paste some code into the text area before clicking 'Explain Code'.")
+        return jsonify(result_data)
 
-st.markdown("---")
-st.markdown("🚀 Built with Streamlit and powered by Gemini 1.5 Flash.")
-st.markdown("*(Ensure you have an active internet connection to use Gemini 1.5 Flash API)*")
+    except requests.exceptions.HTTPError as e:
+        app.logger.error(f"Gemini HTTP error: {e}. Body: {e.response.text}")
+        return jsonify({"error": "Gemini API request failed.", "details": str(e)}), 500
+    except Exception as e:
+        app.logger.error(f"Unexpected error: {e}")
+        return jsonify({"error": "Unexpected server error.", "details": str(e)}), 500
+
+
+# Serve the frontend from the same directory
+@app.route("/")
+def index():
+    return send_from_directory(".", "index.html")
+
+
+if __name__ == "__main__":
+    if not GEMINI_API_KEY:
+        print("\n⚠  WARNING: GEMINI_API_KEY not set.")
+        print("   Run: export GEMINI_API_KEY='your_key_here'\n")
+    app.run(host="0.0.0.0", debug=False, port=5000)
